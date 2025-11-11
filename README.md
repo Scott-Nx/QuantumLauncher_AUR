@@ -5,6 +5,7 @@ This repository contains the PKGBUILD for [QuantumLauncher](https://github.com/M
 ## Description
 
 QuantumLauncher is a modern Minecraft launcher that offers:
+
 - Support for Vanilla, Forge, Fabric, NeoForge, and Quilt
 - Built-in mod browser (CurseForge and Modrinth)
 - Offline and Microsoft account support
@@ -71,4 +72,3 @@ The PKGBUILD is provided as-is for the Arch Linux community. QuantumLauncher its
 ## Contributing
 
 If you find any issues with the package or want to suggest improvements, please open an issue or submit a pull request.
-

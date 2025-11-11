@@ -1,4 +1,4 @@
-# Maintainer: Scott-Nx <your-email@example.com>
+# Maintainer: Scott-Nx <158021536 plus Scott-Nx at users dot noreply dot github dot com>
 pkgname=quantumlauncher
 pkgver=0.4.2
 pkgrel=1
