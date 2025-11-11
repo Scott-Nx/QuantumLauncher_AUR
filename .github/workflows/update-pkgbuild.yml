@@ -83,5 +83,5 @@ jobs:
           git config --local user.name "Scott-Nx"
 
           git add PKGBUILD .SRCINFO
-          git commit -m "Update to version ${{ steps.check_release.outputs.latest_version }}"
+          git commit -m "build(release): bump version to ${{ steps.check_release.outputs.latest_version }}"
           git push
