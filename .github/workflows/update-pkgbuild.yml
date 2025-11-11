@@ -71,18 +71,9 @@ jobs:
       - name: Update .SRCINFO
         if: steps.check_release.outputs.needs_update == 'true'
         run: |
-          # Update version in .SRCINFO
-          sed -i "s/^\tpkgver = .*/\tpkgver = ${{ steps.check_release.outputs.latest_version }}/" .SRCINFO
-
-          # Reset pkgrel
-          sed -i "s/^\tpkgrel = .*/\tpkgrel = 1/" .SRCINFO
-
-          # Update source URL
-          sed -i "s|^\tsource = quantumlauncher-.*.zip::.*|\tsource = quantumlauncher-${{ steps.check_release.outputs.latest_version }}.zip::https://github.com/Mrmayman/quantumlauncher/releases/download/v${{ steps.check_release.outputs.latest_version }}/quantum_launcher_linux_x86_64.zip|" .SRCINFO
-
-          # Update checksum
-          sed -i "s/^\tsha256sums = .*/\tsha256sums = ${{ steps.checksum.outputs.sha256 }}/" .SRCINFO
-
+          sudo apt-get update
+          sudo apt-get install -y pacman-package-manager
+          makepkg --printsrcinfo > .SRCINFO
           echo ".SRCINFO updated successfully"
 
       - name: Commit and push changes
