@@ -18,10 +18,10 @@ QuantumLauncher is a modern Minecraft launcher that offers:
 
 ```bash
 # Using yay
-yay -S quantumlauncher
+yay -S quantumlauncher-bin
 
 # Using paru
-paru -S quantumlauncher
+paru -S quantumlauncher-bin
 
 # Manual installation
 git clone https://aur.archlinux.org/quantumlauncher.git
@@ -67,7 +67,7 @@ The PKGBUILD is provided as-is for the Arch Linux community. QuantumLauncher its
 
 - [Upstream Repository](https://github.com/Mrmayman/quantumlauncher)
 - [Official Website](https://mrmayman.github.io/quantumlauncher)
-- [AUR Package](https://aur.archlinux.org/packages/quantumlauncher)
+- [AUR Package](https://aur.archlinux.org/packages/quantumlauncher-bin)
 
 ## Contributing
 
