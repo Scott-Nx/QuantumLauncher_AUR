@@ -1,0 +1,94 @@
+name: Update PKGBUILD
+
+on:
+  schedule:
+    # Run daily at 00:00 UTC
+    - cron: '0 0 * * *'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  check-update:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Check for new release
+        id: check_release
+        run: |
+          # Get latest release from GitHub API
+          LATEST_RELEASE=$(curl -s https://api.github.com/repos/Mrmayman/quantumlauncher/releases/latest | jq -r '.tag_name')
+          LATEST_VERSION=${LATEST_RELEASE#v}
+          
+          # Get current version from PKGBUILD
+          CURRENT_VERSION=$(grep -oP '^pkgver=\K.*' PKGBUILD)
+          
+          echo "Latest version: $LATEST_VERSION"
+          echo "Current version: $CURRENT_VERSION"
+          
+          # Set outputs
+          echo "latest_version=$LATEST_VERSION" >> $GITHUB_OUTPUT
+          echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+          echo "latest_release=$LATEST_RELEASE" >> $GITHUB_OUTPUT
+          
+          if [ "$LATEST_VERSION" != "$CURRENT_VERSION" ]; then
+            echo "needs_update=true" >> $GITHUB_OUTPUT
+            echo "New version available: $LATEST_VERSION"
+          else
+            echo "needs_update=false" >> $GITHUB_OUTPUT
+            echo "Already up to date"
+          fi
+          
+      - name: Download and calculate checksum
+        if: steps.check_release.outputs.needs_update == 'true'
+        id: checksum
+        run: |
+          # Download the new release
+          wget "https://github.com/Mrmayman/quantumlauncher/releases/download/${{ steps.check_release.outputs.latest_release }}/quantum_launcher_linux_x86_64.zip"
+          
+          # Calculate SHA256
+          SHA256=$(sha256sum quantum_launcher_linux_x86_64.zip | awk '{print $1}')
+          echo "sha256=$SHA256" >> $GITHUB_OUTPUT
+          echo "SHA256: $SHA256"
+          
+      - name: Update PKGBUILD
+        if: steps.check_release.outputs.needs_update == 'true'
+        run: |
+          # Update version
+          sed -i "s/^pkgver=.*/pkgver=${{ steps.check_release.outputs.latest_version }}/" PKGBUILD
+          
+          # Reset pkgrel to 1
+          sed -i "s/^pkgrel=.*/pkgrel=1/" PKGBUILD
+          
+          # Update checksum
+          sed -i "s/^sha256sums=.*/sha256sums=('${{ steps.checksum.outputs.sha256 }')/" PKGBUILD
+          
+          echo "PKGBUILD updated successfully"
+          
+      - name: Update .SRCINFO
+        if: steps.check_release.outputs.needs_update == 'true'
+        run: |
+          # Update version in .SRCINFO
+          sed -i "s/^\tpkgver = .*/\tpkgver = ${{ steps.check_release.outputs.latest_version }}/" .SRCINFO
+          
+          # Reset pkgrel
+          sed -i "s/^\tpkgrel = .*/\tpkgrel = 1/" .SRCINFO
+          
+          # Update source URL
+          sed -i "s|^\tsource = quantumlauncher-.*.zip::.*|\tsource = quantumlauncher-${{ steps.check_release.outputs.latest_version }}.zip::https://github.com/Mrmayman/quantumlauncher/releases/download/v${{ steps.check_release.outputs.latest_version }}/quantum_launcher_linux_x86_64.zip|" .SRCINFO
+          
+          # Update checksum
+          sed -i "s/^\tsha256sums = .*/\tsha256sums = ${{ steps.checksum.outputs.sha256 }}/" .SRCINFO
+          
+          echo ".SRCINFO updated successfully"
+          
+      - name: Commit and push changes
+        if: steps.check_release.outputs.needs_update == 'true'
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          
+          git add PKGBUILD .SRCINFO
+          git commit -m "Update to version ${{ steps.check_release.outputs.latest_version }}"
+          git push
