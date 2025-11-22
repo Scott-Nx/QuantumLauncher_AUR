@@ -6,21 +6,27 @@ on:
 jobs:
   create-package:
     runs-on: ubuntu-latest
+    container:
+      image: archlinux:base
     permissions:
       contents: read
 
     steps:
+      - name: Prepare pacman environment
+        run: |
+          pacman -Sy --noconfirm archlinux-keyring
+          pacman-key --init
+          pacman-key --populate
+          pacman -Syu --noconfirm base-devel git
+
       - name: Checkout repository
         uses: actions/checkout@v5
 
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y pacman-package-manager
-
       - name: Build the package
         run: |
-          makepkg -s --noconfirm
+          useradd -m builder
+          chown -R builder:builder "$GITHUB_WORKSPACE"
+          runuser -u builder -- makepkg -s --noconfirm
 
       - name: Upload build package
         uses: actions/upload-artifact@v5
