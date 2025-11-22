@@ -1,0 +1,29 @@
+name: Create package
+
+on:
+  workflow_dispatch:
+
+jobs:
+  create-package:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pacman-package-manager
+
+      - name: Build the package
+        run: |
+          makepkg -s --noconfirm
+
+      - name: Upload build package
+        uses: actions/upload-artifact@v5
+        with:
+          name: quantumlauncher-bin
+          path: quantumlauncher-bin-*-x86_64.pkg.tar.zst
