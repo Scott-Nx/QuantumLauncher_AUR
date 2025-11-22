@@ -9,10 +9,19 @@ on:
 jobs:
   check-update:
     runs-on: ubuntu-latest
+    container:
+      image: archlinux:base
     permissions:
       contents: write
 
     steps:
+      - name: Prepare pacman environment
+        run: |
+          pacman -Sy --noconfirm archlinux-keyring
+          pacman-key --init
+          pacman-key --populate
+          pacman -Syu --noconfirm base-devel git jq wget curl
+
       - name: Checkout repository
         uses: actions/checkout@v5
 
@@ -68,12 +77,12 @@ jobs:
 
           echo "PKGBUILD updated successfully"
 
-      - name: Update .SRCINFO
+      - name: Generate .SRCINFO
         if: steps.check_release.outputs.needs_update == 'true'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y pacman-package-manager
-          makepkg --printsrcinfo > .SRCINFO
+          id builder &>/dev/null || useradd -m builder
+          chown -R builder:builder "$GITHUB_WORKSPACE"
+          runuser -u builder -- makepkg --printsrcinfo > .SRCINFO
           echo ".SRCINFO updated successfully"
 
       - name: Commit and push changes
