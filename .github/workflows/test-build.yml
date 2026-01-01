@@ -1,0 +1,228 @@
+name: Test Build
+
+on:
+  pull_request:
+    branches: [main, master]
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  validate:
+    name: Validate PKGBUILD
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:base
+
+    steps:
+      - name: Prepare pacman environment
+        run: |
+          pacman -Sy --noconfirm archlinux-keyring
+          pacman-key --init
+          pacman-key --populate
+          pacman -Syu --noconfirm base-devel git namcap
+
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Validate PKGBUILD syntax
+        run: |
+          # Check for bash syntax errors
+          bash -n PKGBUILD
+          echo "✓ PKGBUILD syntax is valid"
+
+      - name: Run namcap on PKGBUILD
+        run: |
+          namcap PKGBUILD || true
+          echo "✓ namcap check completed"
+
+      - name: Verify .SRCINFO matches PKGBUILD
+        run: |
+          id builder &>/dev/null || useradd -m builder
+          chown -R builder:builder "$GITHUB_WORKSPACE"
+
+          # Generate .SRCINFO from PKGBUILD
+          runuser -u builder -- makepkg --printsrcinfo > .SRCINFO.new
+
+          # Compare with existing .SRCINFO
+          if ! diff -u .SRCINFO .SRCINFO.new; then
+            echo ".SRCINFO does not match PKGBUILD!"
+            echo "Please regenerate .SRCINFO by running: makepkg --printsrcinfo > .SRCINFO"
+            exit 1
+          fi
+
+          echo "✓ .SRCINFO matches PKGBUILD"
+
+  test-build:
+    name: Test Build (${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        arch:
+          - x86_64
+          - aarch64
+          - armv7h
+        include:
+          - arch: x86_64
+            platform: linux/amd64
+          - arch: aarch64
+            platform: linux/arm64
+          - arch: armv7h
+            platform: linux/arm/v7
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up QEMU
+        if: matrix.arch != 'x86_64'
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: ${{ matrix.platform }}
+
+      - name: Build package in container
+        run: |
+          docker run --platform ${{ matrix.platform }} --rm \
+            -v ${{ github.workspace }}:/build \
+            -w /build \
+            archlinux:base \
+            bash -c "
+              set -e
+              echo '==> Setting up build environment...'
+              pacman -Syu --noconfirm --needed base-devel git
+
+              echo '==> Creating builder user...'
+              useradd -m builder
+              chown -R builder:builder /build
+
+              echo '==> Building package for ${{ matrix.arch }}...'
+              su builder -c 'makepkg -s --noconfirm --nocheck'
+
+              echo '==> Build completed successfully!'
+              ls -lh *.pkg.tar.zst
+            "
+
+      - name: Verify package contents
+        run: |
+          PKG_FILE=$(ls quantumlauncher-bin-*-${{ matrix.arch }}.pkg.tar.zst)
+
+          echo "==> Package file: $PKG_FILE"
+
+          # Extract package info
+          tar -xOf "$PKG_FILE" .PKGINFO > pkginfo.txt
+
+
+          echo "==> Package Info:"
+          cat pkginfo.txt
+
+          # Verify architecture
+          ARCH=$(grep '^arch = ' pkginfo.txt | cut -d' ' -f3)
+          if [ "$ARCH" != "${{ matrix.arch }}" ]; then
+            echo "Architecture mismatch! Expected: ${{ matrix.arch }}, Got: $ARCH"
+            exit 1
+          fi
+          echo "✓ Architecture verified: $ARCH"
+
+          # List package contents
+          echo "==> Package contents:"
+          tar -tf "$PKG_FILE" | head -20
+
+          # Verify binary exists
+          if tar -tf "$PKG_FILE" | grep -q "usr/bin/quantumlauncher"; then
+            echo "✓ Binary found in package"
+          else
+            echo "Binary not found in package!"
+            exit 1
+          fi
+
+          # Check binary architecture
+          docker run --platform ${{ matrix.platform }} --rm \
+            -v ${{ github.workspace }}:/build \
+            -w /build \
+            archlinux:base \
+            bash -c "
+              pacman -Sy --noconfirm file
+              tar -xf $PKG_FILE usr/bin/quantumlauncher
+              file usr/bin/quantumlauncher
+            "
+
+      - name: Test package installation
+        run: |
+          docker run --platform ${{ matrix.platform }} --rm \
+            -v ${{ github.workspace }}:/build \
+            -w /build \
+            archlinux:base \
+            bash -c "
+              set -e
+              echo '==> Installing package...'
+              pacman -Syu --noconfirm
+              pacman -U --noconfirm quantumlauncher-bin-*-${{ matrix.arch }}.pkg.tar.zst
+
+              echo '==> Verifying installation...'
+              if command -v quantumlauncher &> /dev/null; then
+                echo '✓ quantumlauncher command is available'
+              else
+                echo 'quantumlauncher command not found!'
+                exit 1
+              fi
+
+              echo '==> Checking binary...'
+              ls -lh /usr/bin/quantumlauncher
+              file /usr/bin/quantumlauncher
+
+              echo '==> Checking desktop file...'
+              if [ -f /usr/share/applications/quantumlauncher.desktop ]; then
+                echo '✓ Desktop file installed'
+                cat /usr/share/applications/quantumlauncher.desktop
+              else
+                echo 'Desktop file not found!'
+                exit 1
+              fi
+
+              echo '==> Checking icons...'
+              for size in 32x32 128x128 256x256 512x512; do
+                if [ -f /usr/share/icons/hicolor/\$size/apps/quantumlauncher.png ]; then
+                  echo \"✓ Icon \$size installed\"
+                else
+                  echo \"Icon \$size not found!\"
+                  exit 1
+                fi
+              done
+
+              echo '==> All checks passed!'
+            "
+
+      - name: Run namcap on package
+        run: |
+          docker run --platform ${{ matrix.platform }} --rm \
+            -v ${{ github.workspace }}:/build \
+            -w /build \
+            archlinux:base \
+            bash -c "
+              pacman -Sy --noconfirm namcap
+              namcap quantumlauncher-bin-*-${{ matrix.arch }}.pkg.tar.zst || true
+            "
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: quantumlauncher-bin-${{ matrix.arch }}-test
+          path: quantumlauncher-bin-*-${{ matrix.arch }}.pkg.tar.zst
+          retention-days: 7
+
+  test-summary:
+    name: Test Summary
+    runs-on: ubuntu-latest
+    needs: test-build
+    if: always()
+
+    steps:
+      - name: Check test results
+        run: |
+          if [ "${{ needs.test-build.result }}" != "success" ]; then
+            echo "Some architecture builds failed!"
+            exit 1
+          fi
+          echo "All architecture builds passed!"
