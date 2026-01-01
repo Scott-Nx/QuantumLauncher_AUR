@@ -15,6 +15,7 @@ QuantumLauncher is a modern Minecraft launcher that offers:
 ## Supported Architectures
 
 This package supports multiple architectures:
+
 - **x86_64** - Standard 64-bit Intel/AMD processors
 - **aarch64** - ARM 64-bit processors (e.g., Raspberry Pi 4/5, Apple Silicon via emulation)
 - **armv7h** - ARM 32-bit processors (e.g., older Raspberry Pi models)
