@@ -12,6 +12,13 @@ QuantumLauncher is a modern Minecraft launcher that offers:
 - Simple and intuitive interface
 - Cross-platform compatibility
 
+## Supported Architectures
+
+This package supports multiple architectures:
+- **x86_64** - Standard 64-bit Intel/AMD processors
+- **aarch64** - ARM 64-bit processors (e.g., Raspberry Pi 4/5, Apple Silicon via emulation)
+- **armv7h** - ARM 32-bit processors (e.g., older Raspberry Pi models)
+
 ## Installation
 
 ### From AUR
@@ -57,7 +64,22 @@ makepkg -si
 
 - `PKGBUILD` - The main build script for creating the Arch Linux package
 - `.SRCINFO` - Package metadata for AUR
+- `quantumlauncher.desktop` - Desktop entry file
 - `.github/workflows/update-pkgbuild.yml` - Automated update workflow
+- `.github/workflows/test-build.yml` - Automated testing workflow
+- `.github/workflows/create-package.yml` - Package creation workflow
+
+## Continuous Integration
+
+This repository includes automated CI/CD workflows:
+
+- **Update PKGBUILD** - Runs daily to check for new releases and automatically updates checksums for all architectures
+- **Test Build** - Runs on pull requests and pushes to:
+  - Validate PKGBUILD syntax for all architectures
+  - Build and test x86_64 packages fully
+  - Verify ARM source URLs are accessible
+  - **Note:** ARM builds are NOT tested in CI (requires local testing)
+- **Create Package** - Manual workflow to build x86_64 packages
 
 ## License
 
