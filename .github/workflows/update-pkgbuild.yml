@@ -51,17 +51,27 @@ jobs:
             echo "Already up to date"
           fi
 
-      - name: Download and calculate checksum
+      - name: Download and calculate checksums
         if: steps.check_release.outputs.needs_update == 'true'
         id: checksum
         run: |
-          # Download the new release
+          # Download all architecture releases
           wget "https://github.com/Mrmayman/quantumlauncher/releases/download/${{ steps.check_release.outputs.latest_release }}/quantum_launcher_linux_x86_64.zip"
+          wget "https://github.com/Mrmayman/quantumlauncher/releases/download/${{ steps.check_release.outputs.latest_release }}/quantum_launcher_linux_aarch64.zip"
+          wget "https://github.com/Mrmayman/quantumlauncher/releases/download/${{ steps.check_release.outputs.latest_release }}/quantum_launcher_linux_arm32.zip"
 
-          # Calculate SHA256
-          SHA256=$(sha256sum quantum_launcher_linux_x86_64.zip | awk '{print $1}')
-          echo "sha256=$SHA256" >> $GITHUB_OUTPUT
-          echo "SHA256: $SHA256"
+          # Calculate SHA256 for each architecture
+          SHA256_X86_64=$(sha256sum quantum_launcher_linux_x86_64.zip | awk '{print $1}')
+          SHA256_AARCH64=$(sha256sum quantum_launcher_linux_aarch64.zip | awk '{print $1}')
+          SHA256_ARMV7H=$(sha256sum quantum_launcher_linux_arm32.zip | awk '{print $1}')
+
+          echo "sha256_x86_64=$SHA256_X86_64" >> $GITHUB_OUTPUT
+          echo "sha256_aarch64=$SHA256_AARCH64" >> $GITHUB_OUTPUT
+          echo "sha256_armv7h=$SHA256_ARMV7H" >> $GITHUB_OUTPUT
+
+          echo "SHA256 x86_64: $SHA256_X86_64"
+          echo "SHA256 aarch64: $SHA256_AARCH64"
+          echo "SHA256 armv7h: $SHA256_ARMV7H"
 
       - name: Update PKGBUILD
         if: steps.check_release.outputs.needs_update == 'true'
@@ -72,8 +82,10 @@ jobs:
           # Reset pkgrel to 1
           sed -i "s/^pkgrel=.*/pkgrel=1/" PKGBUILD
 
-          # Update checksum
-          sed -i "s/^sha256sums=.*/sha256sums=('${{ steps.checksum.outputs.sha256 }}'/" PKGBUILD
+          # Update checksums for all architectures
+          sed -i "s/^sha256sums_x86_64=.*/sha256sums_x86_64=('${{ steps.checksum.outputs.sha256_x86_64 }}')/" PKGBUILD
+          sed -i "s/^sha256sums_aarch64=.*/sha256sums_aarch64=('${{ steps.checksum.outputs.sha256_aarch64 }}')/" PKGBUILD
+          sed -i "s/^sha256sums_armv7h=.*/sha256sums_armv7h=('${{ steps.checksum.outputs.sha256_armv7h }}')/" PKGBUILD
 
           echo "PKGBUILD updated successfully"
 

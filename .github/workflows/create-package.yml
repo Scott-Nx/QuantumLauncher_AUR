@@ -6,6 +6,9 @@ on:
 jobs:
   create-package:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [x86_64, aarch64, armv7h]
     container:
       image: archlinux:base
     permissions:
@@ -31,5 +34,5 @@ jobs:
       - name: Upload build package
         uses: actions/upload-artifact@v5
         with:
-          name: quantumlauncher-bin
-          path: quantumlauncher-bin-*-x86_64.pkg.tar.zst
+          name: quantumlauncher-bin-${{ matrix.arch }}
+          path: quantumlauncher-bin-*-${{ matrix.arch }}.pkg.tar.zst
