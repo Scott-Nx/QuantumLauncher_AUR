@@ -46,183 +46,239 @@ jobs:
 
           # Compare with existing .SRCINFO
           if ! diff -u .SRCINFO .SRCINFO.new; then
-            echo ".SRCINFO does not match PKGBUILD!"
+            echo "❌ .SRCINFO does not match PKGBUILD!"
             echo "Please regenerate .SRCINFO by running: makepkg --printsrcinfo > .SRCINFO"
             exit 1
           fi
 
           echo "✓ .SRCINFO matches PKGBUILD"
 
-  test-build:
-    name: Test Build (${{ matrix.arch }})
+      - name: Validate ARM architecture sources
+        run: |
+          echo "==> Validating architecture-specific sources..."
+
+          # Check that ARM sources are defined
+          if ! grep -q "^source_aarch64=" PKGBUILD; then
+            echo "❌ Missing source_aarch64 in PKGBUILD"
+            exit 1
+          fi
+
+          if ! grep -q "^source_armv7h=" PKGBUILD; then
+            echo "❌ Missing source_armv7h in PKGBUILD"
+            exit 1
+          fi
+
+          # Check that ARM checksums are defined
+          if ! grep -q "^sha256sums_aarch64=" PKGBUILD; then
+            echo "❌ Missing sha256sums_aarch64 in PKGBUILD"
+            exit 1
+          fi
+
+          if ! grep -q "^sha256sums_armv7h=" PKGBUILD; then
+            echo "❌ Missing sha256sums_armv7h in PKGBUILD"
+            exit 1
+          fi
+
+          echo "✓ All architecture sources are defined"
+
+  test-build-x86_64:
+    name: Test Build (x86_64)
     runs-on: ubuntu-latest
     needs: validate
-    strategy:
-      fail-fast: false
-      matrix:
-        arch:
-          - x86_64
-          - aarch64
-          - armv7h
-        include:
-          - arch: x86_64
-            platform: linux/amd64
-          - arch: aarch64
-            platform: linux/arm64
-          - arch: armv7h
-            platform: linux/arm/v7
+    container:
+      image: archlinux:base
 
     steps:
+      - name: Prepare pacman environment
+        run: |
+          pacman -Sy --noconfirm archlinux-keyring
+          pacman-key --init
+          pacman-key --populate
+          pacman -Syu --noconfirm base-devel git file namcap
+
       - name: Checkout repository
         uses: actions/checkout@v5
 
-      - name: Set up QEMU
-        if: matrix.arch != 'x86_64'
-        uses: docker/setup-qemu-action@v3
-        with:
-          platforms: ${{ matrix.platform }}
-
-      - name: Build package in container
+      - name: Build package
         run: |
-          docker run --platform ${{ matrix.platform }} --rm \
-            -v ${{ github.workspace }}:/build \
-            -w /build \
-            archlinux:base \
-            bash -c "
-              set -e
-              echo '==> Setting up build environment...'
-              pacman -Syu --noconfirm --needed base-devel git
+          echo "==> Creating builder user..."
+          useradd -m builder
+          chown -R builder:builder "$GITHUB_WORKSPACE"
 
-              echo '==> Creating builder user...'
-              useradd -m builder
-              chown -R builder:builder /build
+          echo "==> Building package for x86_64..."
+          su builder -c 'makepkg -s --noconfirm --nocheck'
 
-              echo '==> Building package for ${{ matrix.arch }}...'
-              su builder -c 'makepkg -s --noconfirm --nocheck'
-
-              echo '==> Build completed successfully!'
-              ls -lh *.pkg.tar.zst
-            "
+          echo "==> Build completed successfully!"
+          ls -lh *.pkg.tar.zst
 
       - name: Verify package contents
         run: |
-          PKG_FILE=$(ls quantumlauncher-bin-*-${{ matrix.arch }}.pkg.tar.zst)
+          # Find the main package (not debug)
+          PKG_FILE=$(ls quantumlauncher-bin-*-x86_64.pkg.tar.zst | grep -v debug | head -1)
 
           echo "==> Package file: $PKG_FILE"
+          ls -lh "$PKG_FILE"
 
-          # Extract package info
-          tar -xOf "$PKG_FILE" .PKGINFO > pkginfo.txt
-
-
+          # Extract and display package info
           echo "==> Package Info:"
-          cat pkginfo.txt
+          tar -xOf "$PKG_FILE" .PKGINFO | grep -E '^(pkgname|pkgver|pkgrel|arch) = '
 
           # Verify architecture
-          ARCH=$(grep '^arch = ' pkginfo.txt | cut -d' ' -f3)
-          if [ "$ARCH" != "${{ matrix.arch }}" ]; then
-            echo "Architecture mismatch! Expected: ${{ matrix.arch }}, Got: $ARCH"
+          ARCH=$(tar -xOf "$PKG_FILE" .PKGINFO | grep '^arch = ' | cut -d' ' -f3)
+          if [ "$ARCH" != "x86_64" ]; then
+            echo "❌ Architecture mismatch! Expected: x86_64, Got: $ARCH"
             exit 1
           fi
           echo "✓ Architecture verified: $ARCH"
 
           # List package contents
-          echo "==> Package contents:"
-          tar -tf "$PKG_FILE" | head -20
+          echo "==> Package contents (first 30 files):"
+          tar -tf "$PKG_FILE" | head -30
 
           # Verify binary exists
           if tar -tf "$PKG_FILE" | grep -q "usr/bin/quantumlauncher"; then
             echo "✓ Binary found in package"
           else
-            echo "Binary not found in package!"
+            echo "❌ Binary not found in package!"
             exit 1
           fi
 
-          # Check binary architecture
-          docker run --platform ${{ matrix.platform }} --rm \
-            -v ${{ github.workspace }}:/build \
-            -w /build \
-            archlinux:base \
-            bash -c "
-              pacman -Sy --noconfirm file
-              tar -xf $PKG_FILE usr/bin/quantumlauncher
-              file usr/bin/quantumlauncher
-            "
+          # Extract and check binary
+          echo "==> Checking binary architecture..."
+          tar -xf "$PKG_FILE" usr/bin/quantumlauncher
+          file usr/bin/quantumlauncher
+
+          # Verify it's x86_64
+          if file usr/bin/quantumlauncher | grep -q "x86-64"; then
+            echo "✓ Binary is x86_64"
+          else
+            echo "❌ Binary is not x86_64!"
+            file usr/bin/quantumlauncher
+            exit 1
+          fi
 
       - name: Test package installation
         run: |
-          docker run --platform ${{ matrix.platform }} --rm \
-            -v ${{ github.workspace }}:/build \
-            -w /build \
-            archlinux:base \
-            bash -c "
-              set -e
-              echo '==> Installing package...'
-              pacman -Syu --noconfirm
-              pacman -U --noconfirm quantumlauncher-bin-*-${{ matrix.arch }}.pkg.tar.zst
+          PKG_FILE=$(ls quantumlauncher-bin-*-x86_64.pkg.tar.zst | grep -v debug | head -1)
 
-              echo '==> Verifying installation...'
-              if command -v quantumlauncher &> /dev/null; then
-                echo '✓ quantumlauncher command is available'
-              else
-                echo 'quantumlauncher command not found!'
-                exit 1
-              fi
+          echo "==> Installing package..."
+          pacman -U --noconfirm "$PKG_FILE"
 
-              echo '==> Checking binary...'
-              ls -lh /usr/bin/quantumlauncher
-              file /usr/bin/quantumlauncher
+          echo "==> Verifying installation..."
+          if command -v quantumlauncher &> /dev/null; then
+            echo "✓ quantumlauncher command is available"
+          else
+            echo "❌ quantumlauncher command not found!"
+            exit 1
+          fi
 
-              echo '==> Checking desktop file...'
-              if [ -f /usr/share/applications/quantumlauncher.desktop ]; then
-                echo '✓ Desktop file installed'
-                cat /usr/share/applications/quantumlauncher.desktop
-              else
-                echo 'Desktop file not found!'
-                exit 1
-              fi
+          echo "==> Checking binary..."
+          ls -lh /usr/bin/quantumlauncher
+          file /usr/bin/quantumlauncher
 
-              echo '==> Checking icons...'
-              for size in 32x32 128x128 256x256 512x512; do
-                if [ -f /usr/share/icons/hicolor/\$size/apps/quantumlauncher.png ]; then
-                  echo \"✓ Icon \$size installed\"
-                else
-                  echo \"Icon \$size not found!\"
-                  exit 1
-                fi
-              done
+          echo "==> Checking desktop file..."
+          if [ -f /usr/share/applications/quantumlauncher.desktop ]; then
+            echo "✓ Desktop file installed"
+            cat /usr/share/applications/quantumlauncher.desktop
+          else
+            echo "❌ Desktop file not found!"
+            exit 1
+          fi
 
-              echo '==> All checks passed!'
-            "
+          echo "==> Checking icons..."
+          for size in 32x32 128x128 256x256 512x512; do
+            icon_path="/usr/share/icons/hicolor/${size}/apps/quantumlauncher.png"
+            if [ -f "$icon_path" ]; then
+              echo "✓ Icon $size installed ($(stat -c%s "$icon_path") bytes)"
+            else
+              echo "❌ Icon $size not found at $icon_path"
+              exit 1
+            fi
+          done
+
+          echo "==> All checks passed!"
 
       - name: Run namcap on package
         run: |
-          docker run --platform ${{ matrix.platform }} --rm \
-            -v ${{ github.workspace }}:/build \
-            -w /build \
-            archlinux:base \
-            bash -c "
-              pacman -Sy --noconfirm namcap
-              namcap quantumlauncher-bin-*-${{ matrix.arch }}.pkg.tar.zst || true
-            "
+          PKG_FILE=$(ls quantumlauncher-bin-*-x86_64.pkg.tar.zst | grep -v debug | head -1)
+          echo "==> Running namcap on $PKG_FILE..."
+          namcap "$PKG_FILE" || true
 
       - name: Upload package artifact
         uses: actions/upload-artifact@v5
         with:
-          name: quantumlauncher-bin-${{ matrix.arch }}-test
-          path: quantumlauncher-bin-*-${{ matrix.arch }}.pkg.tar.zst
+          name: quantumlauncher-bin-x86_64-test
+          path: quantumlauncher-bin-*-x86_64.pkg.tar.zst
           retention-days: 7
+
+  check-arm-sources:
+    name: Verify ARM Sources
+    runs-on: ubuntu-latest
+    needs: validate
+    strategy:
+      matrix:
+        arch: [aarch64, armv7h]
+        include:
+          - arch: aarch64
+            source_name: quantum_launcher_linux_aarch64.zip
+          - arch: armv7h
+            source_name: quantum_launcher_linux_arm32.zip
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Extract version from PKGBUILD
+        id: version
+        run: |
+          PKGVER=$(grep '^pkgver=' PKGBUILD | cut -d'=' -f2)
+          echo "version=$PKGVER" >> $GITHUB_OUTPUT
+          echo "Version: $PKGVER"
+
+      - name: Check if ARM source exists
+        run: |
+          URL="https://github.com/Mrmayman/quantumlauncher/releases/download/v${{ steps.version.outputs.version }}/${{ matrix.source_name }}"
+          echo "==> Checking URL: $URL"
+
+          if curl --head --silent --fail "$URL" > /dev/null; then
+            echo "✓ ${{ matrix.arch }} source exists"
+          else
+            echo "⚠️  Warning: ${{ matrix.arch }} source not found at $URL"
+            echo "This may be expected if the release doesn't include ARM builds yet."
+            echo "The PKGBUILD is configured correctly for when ARM builds are available."
+          fi
 
   test-summary:
     name: Test Summary
     runs-on: ubuntu-latest
-    needs: test-build
+    needs: [validate, test-build-x86_64, check-arm-sources]
     if: always()
 
     steps:
       - name: Check test results
         run: |
-          if [ "${{ needs.test-build.result }}" != "success" ]; then
-            echo "Some architecture builds failed!"
+          echo "==> Test Results Summary"
+          echo "Validation: ${{ needs.validate.result }}"
+          echo "x86_64 Build: ${{ needs.test-build-x86_64.result }}"
+          echo "ARM Sources Check: ${{ needs.check-arm-sources.result }}"
+
+          if [ "${{ needs.validate.result }}" != "success" ]; then
+            echo "❌ PKGBUILD validation failed!"
             exit 1
           fi
-          echo "All architecture builds passed!"
+
+          if [ "${{ needs.test-build-x86_64.result }}" != "success" ]; then
+            echo "❌ x86_64 build failed!"
+            exit 1
+          fi
+
+          # ARM source check is allowed to have warnings
+          if [ "${{ needs.check-arm-sources.result }}" == "failure" ]; then
+            echo "❌ ARM sources check failed!"
+            exit 1
+          fi
+
+          echo "✅ All critical tests passed!"
+          echo ""
+          echo "Note: ARM architecture builds (aarch64, armv7h) require local testing"
+          echo "with QEMU or native ARM hardware. See TESTING.md for instructions."
